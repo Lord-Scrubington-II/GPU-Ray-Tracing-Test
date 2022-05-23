@@ -148,8 +148,8 @@ float3 ComputeLighting(inout Ray ray, RayCastHit rc_hit)
 {
     if (rc_hit.t < 100000.0) { // on intersection with scene geometry
         
-        // return rc_hit.normal * 0.5f + 0.5f;
-        return float3(0.0f, 1.0f, 0.0f);
+        return rc_hit.normal * 0.5f + 0.5f;
+        // return float3(0.0f, 1.0f, 0.0f);
         
     } else { // sample the skybox if no geometry was hit
         
