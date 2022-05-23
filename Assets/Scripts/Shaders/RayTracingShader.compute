@@ -4,13 +4,198 @@
 // Create a RenderTexture with enableRandomWrite flag and set it
 // with cs.SetTexture
 RWTexture2D<float4> Result;
+
 float4x4 _CameraToWorld;
 float4x4 _CameraInverseProjection;
+Texture2D<float4> _SkyboxTexture;
+SamplerState sampler_SkyboxTexture;
 
-[numthreads(8,8,1)]
+static const float PI = 3.14159265f;
+// static const float INFINITY = 1.#INF;
+static const float FLOAT_MAX = 340282300000000000000000000000000000000.0f;
+
+// - BEGIN: Ray Constructors -------------------------------------------------------------------------------------
+struct Ray
+{
+	float3 origin;
+	float3 direction;
+};
+
+struct RayCastHit
+{
+    float3 hit_point;
+	float t; // distance valuse
+    float3 normal; // surface normal
+};
+
+Ray NewRay(float3 origin, float3 direction)
+{
+	Ray ray;
+	ray.origin = origin,
+	ray.direction = direction;
+	return ray;
+}
+
+RayCastHit NewRCHit(float3 hit_pos, float dist, float3 normal)
+{
+    RayCastHit rc_hit;
+    rc_hit.hit_point = hit_pos;
+    rc_hit.t = dist;
+    rc_hit.normal = normal;
+	
+    return rc_hit;
+}
+// - END: Ray Constructors ------------------------------------------------------------------------------------
+
+
+// - BEGIN: Ray Generation and Intersection Routines ----------------------------------------------------------
+
+bool SphereIntersects(Ray ray, inout RayCastHit rc_hit_closest, float4 sphere)
+{
+    // RayCastHit rc_hit = NewRCHit(float3(0.0f, 0.0f, 0.0f), FLOAT_MAX, float3(0.0f, 0.0f, 0.0f));
+    float3 centre = sphere.xyz;
+    float radius = sphere.w;
+    
+    float3 origin_to_centre = ray.origin - centre;
+    float a = dot(ray.direction, ray.direction);
+    float b = 2.0f * dot(ray.direction, origin_to_centre);
+    float c = dot(origin_to_centre, origin_to_centre) - radius * radius;
+    float discriminant = b * b - 4.0f * a * c;
+    bool norm_outward = true; // may need another approach, such as the dot prod
+
+    if (discriminant < 0.0f) {
+        return false; // complex roots mean no intersection
+    }
+
+    float t1 = (-b + sqrt(discriminant)) / (2.0f * a);
+    float t2 = (-b - sqrt(discriminant)) / (2.0f * a);
+    float root;
+        
+    if (t1 < 0.0f || t2 < 0.0f) { // a negative root means ray is in the sphere.
+        root = max(t1, t2);
+    } else {
+        root = min(t1, t2);
+    }
+    
+    float3 local_hit_point = ray.origin + ray.direction * root;
+    float3 local_norm = normalize(local_hit_point - centre);
+    
+    if (root < rc_hit_closest.t) {
+        // this point is closer, so update the closest intersection record
+        rc_hit_closest.t = distance(local_hit_point, ray.origin);
+        // rc_hit_closest.hit_material = sphere.material;
+        rc_hit_closest.hit_point = local_hit_point;
+        rc_hit_closest.normal = local_norm;
+        
+        return true;
+    } else {
+        return false;
+    }
+}
+
+// For this demo, we will always define a ground plane at y-level 0.
+bool GroundPlaneIntersects(Ray ray, inout RayCastHit rc_hit_closest)
+{
+	// camera offset in y from origin divided by ray direction's y component
+	// gives the t-value for the infinite ground plane intersection
+    float t = ray.origin.y / ray.direction.y; 
+	
+    if (t > 0.0f && t < rc_hit_closest.t) {
+        rc_hit_closest.t = t;
+        rc_hit_closest.hit_point = ray.origin + t * ray.direction;
+        rc_hit_closest.normal = float3(0.0f, 1.0f, 0.0f); // always known, it's the y = 1 standard basis vector
+        return true;
+    } else {
+        return false;
+    }
+}
+
+RayCastHit RayCast(Ray ray)
+{
+	// the return value is going to be the RC Hit record of the closest intersection
+    RayCastHit rc_hit = NewRCHit(float3(0.0f, 0.0f, 0.0f), FLOAT_MAX, float3(0.0f, 0.0f, 0.0f));
+    GroundPlaneIntersects(ray, rc_hit);
+    return rc_hit;
+}
+
+// Given a Vector2 in normalized device coordinates [-1, 1], generate a primary ray from the camera
+Ray CameraRayGen(float2 ndc_xy) 
+{
+	// As before, we want ray origin and direction in world space.
+	
+	// Extract camera aperture transform
+    float3 origin = mul(_CameraToWorld, float4(0.0f, 0.0f, 0.0f, 1.0f)).xyz;
+
+	// invert the projection of camera-space direction --> ndc-uv coordinates...
+    float3 direction = mul(_CameraInverseProjection, float4(ndc_xy, 0.0f, 1.0f)).xyz;
+
+	// ...then, transform to world space and normalize.
+    direction = normalize(
+		mul(_CameraToWorld, float4(direction, 0.0f)).xyz
+	);
+	
+    return NewRay(origin, direction);
+}
+
+// - END: Ray Generation and Intersection Routines ----------------------------------------------------------
+
+
+// - BEGIN: Shading Model --------------------------------------------------------
+
+float3 ComputeLighting(inout Ray ray, RayCastHit rc_hit)
+{
+    if (rc_hit.t < FLOAT_MAX) {
+        
+        // return rc_hit.normal * 0.5f + 0.5f;
+        return float3(0.0f, 1.0f, 0.0f);
+        
+    } else { // sample the skybox if no geometry was hit
+        
+		// we want to sample the skybox using spherical coordinates.
+		// convert the world-space direction vector to an azimuthal and polar angle on the unit sphere
+		// and use those to sample from the skybox texture.
+		
+		// azimuth
+        float theta = -(acos(ray.direction.y) / PI); // for some reason, these need to be negated
+	
+		// polar
+        float phi = -atan2(ray.direction.x, -ray.direction.z) / (2.0f * PI); // normalized to [-1, 1]
+		
+        float3 skybox_colour = _SkyboxTexture.SampleLevel(sampler_SkyboxTexture, float2(phi, theta), 0.0f).xyz;
+        return skybox_colour;
+    }
+}
+
+// - END: Shading Model ----------------------------------------------------------
+
+// This is the shader's main routine. The compute shader can write directly to the texture
+// through the passed "Result" var.
+[numthreads(8, 8, 1)]
 void CSMain (uint3 id : SV_DispatchThreadID)
 {
-    // TODO: insert actual code here!
+	// Retrieve the dimensions of the render texture by reference
+    uint width;
+    uint height;
+    Result.GetDimensions(width, height);
+	
+	// we will have to transform the pixel to NDC in [-1, 1],
+	// which we will offload to the CameraRayGen function to transform 
+	// into a world space direction.
+    float2 ndc_xy = float2(
+		// id.xy effectively gives us the x-y coordinate of the pixel this compute shader is currently "working on"
+		// since each shader instance is given a 3-dimensional ID vector
+		(
+			(id.xy + float2(0.5f, 0.5f))
+			/ float2(width, height)
+		) * 2.0f - 1.0f
+	);
+	
+	// primary ray generation
+    Ray cam_ray = CameraRayGen(ndc_xy);	
+	
+    RayCastHit rc_hit = RayCast(cam_ray);
+	
+    float3 this_pix_colour = ComputeLighting(cam_ray, rc_hit);
 
-    Result[id.xy] = float4(id.x & id.y, (id.x & 15)/15.0, (id.y & 15)/15.0, 0.0);
+    Result[id.xy] = float4(this_pix_colour, 1.0f);
 }

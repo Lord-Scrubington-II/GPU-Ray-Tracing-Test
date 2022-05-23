@@ -5,13 +5,16 @@ using UnityEngine;
 public class RayTracingMaster : MonoBehaviour
 {
     public ComputeShader RayTracingShader;
-    private RenderTexture _target;
-    private Camera _masterCam;
+    private RenderTexture renderTarget;
+    private Camera masterCam;
     private readonly int DEFAULT_THREAD_GROUP_SIZE = 8;
+    public readonly int MASTER_KERNEL_INDEX = 0;
+
+    public Texture SkyboxTexture; // we can pass any texture to the compute shader, so let's do a skybox
 
     private void Awake()
     {
-        _masterCam = gameObject.GetComponent<Camera>();
+        masterCam = gameObject.GetComponent<Camera>();
     }
 
     /// <summary>
@@ -31,25 +34,25 @@ public class RayTracingMaster : MonoBehaviour
         InitRenderTexture();
 
         // Pass the cached texture to the compute shader and dispatch the GPU threads
-        RayTracingShader.SetTexture(0, "RTResult", _target);
+        RayTracingShader.SetTexture(MASTER_KERNEL_INDEX, "Result", renderTarget);
         int threadGroupsinX = Mathf.CeilToInt(Screen.width / (float)DEFAULT_THREAD_GROUP_SIZE); 
         int threadGroupsinY = Mathf.CeilToInt(Screen.width / (float)DEFAULT_THREAD_GROUP_SIZE);
-        RayTracingShader.Dispatch(0, threadGroupsinX, threadGroupsinY, 1); // we are using the default thread group size, one per 8x8 pixel grid.
+        RayTracingShader.Dispatch(MASTER_KERNEL_INDEX, threadGroupsinX, threadGroupsinY, 1); // we are using the default thread group size, one per 8x8 pixel grid.
 
         // Graphics.Blit() will copy the source texture into the destination. 
         // in this case, we want to simply write the cached RenderTexture into the destination buffer.
-        Graphics.Blit(_target, destination);
+        Graphics.Blit(renderTarget, destination);
     }
 
     private void InitRenderTexture()
     {
-        if (_target == null || _target.width != Screen.width || _target.height != Screen.height) {
+        if (renderTarget == null || renderTarget.width != Screen.width || renderTarget.height != Screen.height) {
 
             // if we already have a render texture, release it
-            if (_target != null) _target.Release();
+            if (renderTarget != null) renderTarget.Release();
 
             // this will get a target render texture for ray tracing
-            _target = new RenderTexture(
+            renderTarget = new RenderTexture(
                 Screen.width,
                 Screen.height,
                 0,
@@ -58,14 +61,16 @@ public class RayTracingMaster : MonoBehaviour
             ) {
                 enableRandomWrite = true // enable random-access write to this texture
             };
-            _target.Create();
+            renderTarget.Create();
         }
     }
 
     private void PassShaderParams()
     {
         // pass the camera's model-view and projection matrix inverses to the compute shader
-        RayTracingShader.SetMatrix("_CameraToWorld", _masterCam.cameraToWorldMatrix); // string reference bad, but it will do for now
-        RayTracingShader.SetMatrix("_CameraInverseProjection", _masterCam.projectionMatrix.inverse);
+        RayTracingShader.SetMatrix("_CameraToWorld", masterCam.cameraToWorldMatrix); // string reference bad, but it will do for now
+        RayTracingShader.SetMatrix("_CameraInverseProjection", masterCam.projectionMatrix.inverse);
+
+        RayTracingShader.SetTexture(MASTER_KERNEL_INDEX, "_SkyboxTexture", SkyboxTexture);
     }
 }
