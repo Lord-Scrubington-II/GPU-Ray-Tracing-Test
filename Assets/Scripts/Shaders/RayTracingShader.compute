@@ -11,8 +11,8 @@ Texture2D<float4> _SkyboxTexture;
 SamplerState sampler_SkyboxTexture;
 
 static const float PI = 3.14159265f;
-// static const float INFINITY = 1.#INF;
-static const float FLOAT_MAX = 340282300000000000000000000000000000000.0f;
+static const float INFINITY = 1.#INF;
+// static const float FLOAT_MAX = 340282300000000000000000000000000000000.0f;
 
 // - BEGIN: Ray Constructors -------------------------------------------------------------------------------------
 struct Ray
@@ -69,7 +69,7 @@ bool SphereIntersects(Ray ray, inout RayCastHit rc_hit_closest, float4 sphere)
 
     float t1 = (-b + sqrt(discriminant)) / (2.0f * a);
     float t2 = (-b - sqrt(discriminant)) / (2.0f * a);
-    float root;
+    float root; // intersection t-values are the roots of the quadratic
         
     if (t1 < 0.0f || t2 < 0.0f) { // a negative root means ray is in the sphere.
         root = max(t1, t2);
@@ -80,7 +80,7 @@ bool SphereIntersects(Ray ray, inout RayCastHit rc_hit_closest, float4 sphere)
     float3 local_hit_point = ray.origin + ray.direction * root;
     float3 local_norm = normalize(local_hit_point - centre);
     
-    if (root < rc_hit_closest.t) {
+    if (root > 0.0f && root < rc_hit_closest.t) {
         // this point is closer, so update the closest intersection record
         rc_hit_closest.t = distance(local_hit_point, ray.origin);
         // rc_hit_closest.hit_material = sphere.material;
@@ -98,7 +98,7 @@ bool GroundPlaneIntersects(Ray ray, inout RayCastHit rc_hit_closest)
 {
 	// camera offset in y from origin divided by ray direction's y component
 	// gives the t-value for the infinite ground plane intersection
-    float t = ray.origin.y / ray.direction.y; 
+    float t = -ray.origin.y / ray.direction.y; 
 	
     if (t > 0.0f && t < rc_hit_closest.t) {
         rc_hit_closest.t = t;
@@ -113,8 +113,10 @@ bool GroundPlaneIntersects(Ray ray, inout RayCastHit rc_hit_closest)
 RayCastHit RayCast(Ray ray)
 {
 	// the return value is going to be the RC Hit record of the closest intersection
-    RayCastHit rc_hit = NewRCHit(float3(0.0f, 0.0f, 0.0f), FLOAT_MAX, float3(0.0f, 0.0f, 0.0f));
+    float4 test_sphere = float4(0.0f, 3.0f, 5.0f, 1.0f);
+    RayCastHit rc_hit = NewRCHit(float3(0.0f, 0.0f, 0.0f), INFINITY, float3(0.0f, 0.0f, 0.0f));
     GroundPlaneIntersects(ray, rc_hit);
+    SphereIntersects(ray, rc_hit, test_sphere);
     return rc_hit;
 }
 
@@ -144,7 +146,7 @@ Ray CameraRayGen(float2 ndc_xy)
 
 float3 ComputeLighting(inout Ray ray, RayCastHit rc_hit)
 {
-    if (rc_hit.t < FLOAT_MAX) {
+    if (rc_hit.t < 100000.0) { // on intersection with scene geometry
         
         // return rc_hit.normal * 0.5f + 0.5f;
         return float3(0.0f, 1.0f, 0.0f);
@@ -192,9 +194,7 @@ void CSMain (uint3 id : SV_DispatchThreadID)
 	
 	// primary ray generation
     Ray cam_ray = CameraRayGen(ndc_xy);	
-	
     RayCastHit rc_hit = RayCast(cam_ray);
-	
     float3 this_pix_colour = ComputeLighting(cam_ray, rc_hit);
 
     Result[id.xy] = float4(this_pix_colour, 1.0f);
