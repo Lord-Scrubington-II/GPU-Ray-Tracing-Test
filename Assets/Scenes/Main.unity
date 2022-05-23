@@ -326,9 +326,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 54ce24099e1c77546a26496e4daf6417, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  turnSpeed: 4
-  panSpeed: 0.2
-  zoomSpeed: 4
+  turnSpeed: 7.94
+  panSpeed: 5.66
+  movementBoostCoefficient: 1.825
 --- !u!850595691 &1882879258
 LightingSettings:
   m_ObjectHideFlags: 0

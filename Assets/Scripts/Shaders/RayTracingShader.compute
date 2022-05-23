@@ -47,8 +47,50 @@ RayCastHit NewRCHit(float3 hit_pos, float dist, float3 normal)
 }
 // - END: Ray Constructors ------------------------------------------------------------------------------------
 
+// - BEGIN: Geometry and Intersection Routines -------------------------------------------------------------------------------------
+struct Material
+{
+    float3 ambient;
+    float3 specular;
+    float3 diffuse;
+    float shininess;
+};
 
-// - BEGIN: Ray Generation and Intersection Routines ----------------------------------------------------------
+struct Sphere
+{
+    float3 centre;
+    float radius;
+    Material material;
+};
+
+Material NewMaterial(
+    float3 ambient,
+    float3 specular,
+    float3 diffuse,
+    float shininess
+) {
+    Material mat;
+    mat.ambient = ambient;
+    mat.specular = specular;
+    mat.diffuse = diffuse;
+    mat.shininess = shininess;
+    
+    return mat;
+}
+
+Sphere NewSphere(float3 centre, float radius, Material material)
+{
+    Sphere sphere;
+    sphere.centre = centre;
+    sphere.radius = radius;
+    sphere.material = material;
+    return sphere;
+}
+// - END: Geometry and Intersection Routines ---------------------------------------------------------------------------------------
+
+
+
+// - BEGIN: Ray Generation  ----------------------------------------------------------
 
 bool SphereIntersects(Ray ray, inout RayCastHit rc_hit_closest, float4 sphere)
 {

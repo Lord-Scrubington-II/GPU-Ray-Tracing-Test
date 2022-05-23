@@ -49,44 +49,44 @@ public class CameraController : MonoBehaviour
 
 			// rotate the camera first around the x-axis proportional to the movement in screen-space y,
 			// then rotate the camera around the z-axis proportional to the movement in screen-space x.
-			transform.RotateAround(transform.position, transform.right, -moveDirection.y * turnSpeed * Time.deltaTime * camRotateCoeff * movementMultiplier);
-			transform.RotateAround(transform.position, Vector3.up, moveDirection.x * turnSpeed * Time.deltaTime * camRotateCoeff * movementMultiplier);
+			transform.RotateAround(transform.position, transform.right, -moveDirection.y * turnSpeed * Time.deltaTime * camRotateCoeff);
+			transform.RotateAround(transform.position, Vector3.up, moveDirection.x * turnSpeed * Time.deltaTime * camRotateCoeff);
 		}
 
 		// Move the camera upwards
 		if (Input.GetKey(KeyCode.Space)) {
 			moveDirection = Vector3.up;
-			transform.Translate(panSpeed * Time.deltaTime * moveDirection * movementMultiplier, Space.World);
+			transform.Translate(movementMultiplier * panSpeed * Time.deltaTime * moveDirection, Space.World);
 		}
 
 		// Move the camera downwards
 		if (Input.GetKey(KeyCode.LeftControl)) {
 			moveDirection = Vector3.down;
-			transform.Translate(panSpeed * Time.deltaTime * moveDirection * movementMultiplier, Space.World);
+			transform.Translate(movementMultiplier * panSpeed * Time.deltaTime * moveDirection, Space.World);
 		}
 
 		// Move the camera forward (along the local positive z-axis)
 		if (Input.GetKey(KeyCode.W)) {
 			moveDirection = transform.forward;
-			transform.Translate(panSpeed * Time.deltaTime * moveDirection * movementMultiplier, Space.World);
+			transform.Translate(movementMultiplier * panSpeed * Time.deltaTime * moveDirection, Space.World);
 		}
 
 		// Move the camera left (along the local negative y-axis)
 		if (Input.GetKey(KeyCode.A)) {
 			moveDirection = -transform.right;
-			transform.Translate(panSpeed * Time.deltaTime * moveDirection * movementMultiplier, Space.World);
+			transform.Translate(movementMultiplier * panSpeed * Time.deltaTime * moveDirection, Space.World);
 		}
 
 		// Move the camera left (along the local negative z-axis)
 		if (Input.GetKey(KeyCode.S)) {
 			moveDirection = -transform.forward;
-			transform.Translate(panSpeed * Time.deltaTime * moveDirection * movementMultiplier, Space.World);
+			transform.Translate(movementMultiplier * panSpeed * Time.deltaTime * moveDirection, Space.World);
 		}
 
 		// Move the camera right (along the local positive y-axis)
 		if (Input.GetKey(KeyCode.D)) {
 			moveDirection = transform.right;
-			transform.Translate(panSpeed * Time.deltaTime * moveDirection * movementMultiplier, Space.World);
+			transform.Translate(movementMultiplier * panSpeed * Time.deltaTime * moveDirection, Space.World);
 		}
 
 	}
