@@ -17,19 +17,36 @@ public class RayTracingMaster : MonoBehaviour
     private uint currentSample = 0;
     private Material AAMat;
 
-    protected struct SimpleSphere
+    // For scene generation.
+    // Perhaps we can define UI for controlling things like number of ray bounces,
+    // use of the skybox, gizmos & unity transforms for manually placing spheres, etc. in real time...
+    [SerializeField] Vector2 sphereRadiusRange = new Vector2(2.0f, 10.0f);
+    [SerializeField] uint numSpheres = 100;
+    [SerializeField] float spherePlacementRadius = 100.0f; // how large of a circle do we want to fill with spheres?
+    [SerializeField] Vector2 sphereShininessRange = new Vector2(20.0f, 100.0f);
+    private ComputeBuffer sphereBuffer;
+    private const int FLOATS_IN_SHADER_SPHERE = 11; // used for calculating the buffer stride
+
+    internal struct SimpleSphere
     {
         Vector3 centre;
-        Vector3 radius;
+        float radius;
 
-        SimpleMaterial material;
+        public SimpleMaterial material;
+
+        public Vector3 Centre { get => centre; set => centre = value; }
+        public float Radius { get => radius; set => radius = value; }
     }
 
-    protected struct SimpleMaterial
+    internal struct SimpleMaterial
     {
         Vector3 diffuse;
         Vector3 specular;
         float shininess;
+
+        public Vector3 Diffuse { get => diffuse; set => diffuse = value; }
+        public Vector3 Specular { get => specular; set => specular = value; }
+        public float Shininess { get => shininess; set => shininess = value; }
     }
 
     private void Awake()
@@ -47,6 +64,66 @@ public class RayTracingMaster : MonoBehaviour
             gameObject.transform.hasChanged = false;
         }
     }
+
+    private void OnEnable()
+    {
+        currentSample = 0;
+        GenerateRandomSceneConfig();
+    }
+
+    private void OnDisable()
+    {
+        if (sphereBuffer != null) sphereBuffer.Release();
+    }
+
+    /// <summary>
+    /// Generates a random scene of spheres with the inspector params.
+    /// </summary>
+    private void GenerateRandomSceneConfig()
+    {
+        List<SimpleSphere> spheres = new List<SimpleSphere>();
+
+        // routine structure is adapted directly from `SetUpScene()` in 
+        // http://three-eyed-games.com/2018/05/03/gpu-ray-tracing-in-unity-part-1/
+        for (int i = 0; i < numSpheres; i++) {
+            SimpleSphere sphere = new SimpleSphere();
+
+            // set the radius and centre point of this sphere inside the defined placement circle
+            sphere.Radius = sphereRadiusRange.x + Random.value * (sphereRadiusRange.y - sphereRadiusRange.x);
+            Vector2 randomPos = Random.insideUnitCircle * spherePlacementRadius;
+            sphere.Centre = new Vector3(randomPos.x, sphere.Radius, randomPos.y);
+
+            // to deal with spheres that intersect each other, just reject them
+            foreach (var otherSphere in spheres) {
+                float minDistThresh = sphere.Radius + otherSphere.Radius; // must be dist apart equal to sum of their radii
+                if (Vector3.Distance(sphere.Centre, otherSphere.Centre) < minDistThresh) {
+                    goto NextSphere; // the only time you will ever see me use 'goto'
+                }
+            }
+
+            // define a somewhat-random diffuse, specular, and shininess
+            Color color = Random.ColorHSV();
+            bool isMetal = Random.value < 0.5f; // half the spheres will be metals (highly specular), the other half matte (highly diffuse)
+
+            if (isMetal) {
+                sphere.material.Diffuse = Vector3.zero;
+                sphere.material.Specular = new Vector3(color.r, color.g, color.b);
+            } else {
+                sphere.material.Diffuse = new Vector3(color.r, color.g, color.b);
+                sphere.material.Specular = Vector3.one * 0.05f; // add 5% specularity, fully arbitrary
+            }
+            sphere.material.Shininess = sphereShininessRange.x + Random.value * (sphereShininessRange.y - sphereShininessRange.x);
+
+            spheres.Add(sphere);
+
+            NextSphere: continue;
+        }
+
+        // now, we must push the list of spheres to the compute buffer.
+        sphereBuffer = new ComputeBuffer(spheres.Count, sizeof(float) * FLOATS_IN_SHADER_SPHERE);
+        sphereBuffer.SetData(spheres);
+    }
+
 
     /// <summary>
     /// This function is called by the Unity Runtime at the end of the standard rendering pipeline. 
@@ -119,5 +196,8 @@ public class RayTracingMaster : MonoBehaviour
 
         // random vector for AA jittering
         RayTracingShader.SetVector("_PixelOffset", new Vector2(Random.value, Random.value));
+
+        // pass the scene data to the shader!
+        RayTracingShader.SetBuffer(0, "_Spheres", sphereBuffer);
     }
 }

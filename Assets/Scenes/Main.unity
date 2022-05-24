@@ -314,7 +314,10 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   RayTracingShader: {fileID: 7200000, guid: 97b8804f25e3a8f47a88dfe8ffd08adf, type: 3}
   SkyboxTexture: {fileID: 2800000, guid: f577a4207e05cdc4c952fc15f4ed1f55, type: 3}
-  SunLight: {fileID: 705507994}
+  Sun: {fileID: 705507994}
+  sphereRadiusRange: {x: 2, y: 20}
+  numSpheres: 100
+  spherePlacementRadius: 100
 --- !u!114 &963194230
 MonoBehaviour:
   m_ObjectHideFlags: 0

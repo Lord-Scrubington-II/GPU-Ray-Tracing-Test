@@ -13,6 +13,8 @@ float4 _Sun;
 
 float2 _PixelOffset; // FOR AA
 static const float _MaxBounces = 5;
+static const bool _UseHighlights = true;
+static const float _SkyboxEnergyBoostCoeff = 1.25f;
 
 static const float PI = 3.14159265f;
 static const float INFINITY = 1.#INF;
@@ -27,13 +29,6 @@ struct Ray
     float3 throughput;
 };
 
-struct RayCastHit
-{
-    float3 hit_point;
-	float t; // distance valuse
-    float3 normal; // surface normal
-};
-
 Ray NewRay(float3 origin, float3 direction)
 {
 	Ray ray;
@@ -42,23 +37,13 @@ Ray NewRay(float3 origin, float3 direction)
     ray.throughput = float3(1.0f, 1.0f, 1.0f); // new rays begin always with full throughput
 	return ray;
 }
-
-RayCastHit NewRCHit(float3 hit_pos, float dist, float3 normal)
-{
-    RayCastHit rc_hit;
-    rc_hit.hit_point = hit_pos;
-    rc_hit.t = dist;
-    rc_hit.normal = normal;
-	
-    return rc_hit;
-}
 // - END: Ray Constructors ------------------------------------------------------------------------------------
 
 // - BEGIN: Geometry and Intersection Routines -------------------------------------------------------------------------------------
 struct Material
 {
-    float3 specular;
     float3 diffuse;
+    float3 specular;
     float shininess;
 };
 
@@ -71,6 +56,8 @@ struct Sphere
     // material properties
     Material material;
 };
+
+StructuredBuffer<Sphere> _Spheres; // sphere buffer
 
 Material NewMaterial(
     float3 diffuse, 
@@ -93,17 +80,40 @@ Sphere NewSphere(float3 centre, float radius, Material material)
     sphere.material = material;
     return sphere;
 }
-// - END: Geometry and Intersection Routines ---------------------------------------------------------------------------------------
 
+struct RayCastHit
+{
+    float3 hit_point;
+    float t; // distance valuse
+    float3 normal; // surface normal
+    Material hit_material;
+};
+
+RayCastHit NewRCHit(float3 hit_pos, float dist, float3 normal)
+{
+    RayCastHit rc_hit;
+    rc_hit.hit_point = hit_pos;
+    rc_hit.t = dist;
+    rc_hit.normal = normal;
+    
+    rc_hit.hit_material = NewMaterial(
+        float3(0.0f, 0.0f, 0.0f),
+        float3(0.0f, 0.0f, 0.0f),
+        0.0f
+    );
+	
+    return rc_hit;
+}
+// - END: Geometry and Intersection Routines ---------------------------------------------------------------------------------------
 
 
 // - BEGIN: Ray Generation  ----------------------------------------------------------
 
-bool SphereIntersects(Ray ray, inout RayCastHit rc_hit_closest, float4 sphere)
+bool SphereIntersects(Ray ray, inout RayCastHit rc_hit_closest, Sphere sphere)
 {
     // RayCastHit rc_hit = NewRCHit(float3(0.0f, 0.0f, 0.0f), FLOAT_MAX, float3(0.0f, 0.0f, 0.0f));
-    float3 centre = sphere.xyz;
-    float radius = sphere.w;
+    float3 centre = sphere.centre;
+    float radius = sphere.radius;
     
     float3 origin_to_centre = ray.origin - centre;
     float a = dot(ray.direction, ray.direction);
@@ -132,9 +142,9 @@ bool SphereIntersects(Ray ray, inout RayCastHit rc_hit_closest, float4 sphere)
     if (root > 0.0f && root < rc_hit_closest.t) {
         // this point is closer, so update the closest intersection record
         rc_hit_closest.t = distance(local_hit_point, ray.origin);
-        // rc_hit_closest.hit_material = sphere.material;
         rc_hit_closest.hit_point = local_hit_point;
         rc_hit_closest.normal = local_norm;
+        rc_hit_closest.hit_material = sphere.material;
         
         return true;
     } else {
@@ -148,11 +158,16 @@ bool GroundPlaneIntersects(Ray ray, inout RayCastHit rc_hit_closest)
 	// camera offset in y from origin divided by ray direction's y component
 	// gives the t-value for the infinite ground plane intersection
     float t = -ray.origin.y / ray.direction.y; 
+    
+    float3 plane_diffuse = float3(0.0f, 0.0f, 0.0f);
+    float3 plane_spec = float3(0.6f, 0.6f, 0.6f);
+    float plane_shininess = 200.0f;
 	
     if (t > 0.0f && t < rc_hit_closest.t) {
         rc_hit_closest.t = t;
         rc_hit_closest.hit_point = ray.origin + t * ray.direction;
         rc_hit_closest.normal = float3(0.0f, 1.0f, 0.0f); // always known, it's the y = 1 standard basis vector
+        rc_hit_closest.hit_material = NewMaterial(plane_diffuse, plane_spec, plane_shininess);
         return true;
     } else {
         return false;
@@ -163,14 +178,19 @@ bool GroundPlaneIntersects(Ray ray, inout RayCastHit rc_hit_closest)
 // If the t-value is infinity, then there was no hit.
 RayCastHit RayCast(Ray ray)
 {
-	// the return value is going to be the RC Hit record of the closest intersection
-    float4 test_sphere = float4(0.0f, 5.0f, 5.0f, 1.0f);
-    float4 test_sphere2 = float4(3.0f, 5.0f, 4.0f, 1.0f);
     
+	// the return value is going to be the RC Hit record of the closest intersection
     RayCastHit rc_hit = NewRCHit(float3(0.0f, 0.0f, 0.0f), INFINITY, float3(0.0f, 0.0f, 0.0f));
     GroundPlaneIntersects(ray, rc_hit);
-    SphereIntersects(ray, rc_hit, test_sphere);
-    SphereIntersects(ray, rc_hit, test_sphere2);
+    
+    // - BEGIN: Geometry Intersection Test
+    // must extract StructuredBuffer by reference
+    uint sphere_count;
+    uint stride;
+    _Spheres.GetDimensions(sphere_count, stride);
+    for (uint i = 0; i < sphere_count; i++) {
+        SphereIntersects(ray, rc_hit, _Spheres[i]);
+    }
     return rc_hit;
 }
 
@@ -213,7 +233,11 @@ float3 Blinn_Phong(
 
     float point_spec = dot(normal, half_vector); // n \dot h
     float3 phong = specular * light_colour * pow(max(point_spec, 0.0), shininess);
-
+    
+    if (!_UseHighlights) {
+        phong = float3(0.0f, 0.0f, 0.0f);
+    }
+    
     return lambertian + phong;
 }
 
@@ -222,12 +246,13 @@ float3 ComputeLighting(inout Ray ray, RayCastHit rc_hit)
 {
     if (rc_hit.t < INFINITY) { // on intersection with scene geometry
         
-        float3 diffuse_test = float3(0.2f, 0.2f, 0.2f);
-        float3 specular_test = float3(0.6f, 0.6f, 0.6f);
+        /* float3 diffuse = float3(0.2f, 0.2f, 0.2f);
+        float3 specular = float3(0.6f, 0.6f, 0.6f);
+        float3 shininess = 200.0f; */
         
-        float3 diffuse = diffuse_test;
-        float3 specular = specular_test;
-        float3 shininess = 100.0f;
+        float3 diffuse = rc_hit.hit_material.diffuse;
+        float3 specular = rc_hit.hit_material.specular;
+        float3 shininess = rc_hit.hit_material.shininess;
         
         // BEGIN: Simplified Blinn-Phong lighting calculations
         float3 normal = normalize(rc_hit.normal);
@@ -247,7 +272,7 @@ float3 ComputeLighting(inout Ray ray, RayCastHit rc_hit)
         // and await the next bounce.
         ray.origin = rc_hit.hit_point + rc_hit.normal * 0.001f;
         ray.direction = reflect(ray.direction, rc_hit.normal);
-        ray.throughput *= specular_test; // attenuate the throughput by the specular component
+        ray.throughput *= specular; // attenuate the throughput by the specular component
         
         // do not add the colour if the point is shadow-cast
         Ray shadow_ray = NewRay(rc_hit.hit_point + 0.001f * rc_hit.normal, -1 * _Sun.xyz);
@@ -273,8 +298,7 @@ float3 ComputeLighting(inout Ray ray, RayCastHit rc_hit)
         float phi = -atan2(ray.direction.x, -ray.direction.z) / (2.0f * PI); // normalized to [-1, 1]
 		
         float3 skybox_colour = _SkyboxTexture.SampleLevel(sampler_SkyboxTexture, float2(phi, theta), 0.0f).xyz;
-        return skybox_colour;
-        return float3(0.0f, 0.0f, 0.0f);
+        return skybox_colour * _SkyboxEnergyBoostCoeff; 
     }
 }
 
