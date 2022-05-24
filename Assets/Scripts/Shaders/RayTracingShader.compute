@@ -9,9 +9,14 @@ float4x4 _CameraToWorld;
 float4x4 _CameraInverseProjection;
 Texture2D<float4> _SkyboxTexture;
 SamplerState sampler_SkyboxTexture;
+float4 _Sun;
+
+float2 _PixelOffset; // FOR AA
+static const float _MaxBounces = 5;
 
 static const float PI = 3.14159265f;
 static const float INFINITY = 1.#INF;
+static const bool DEBUG_NORMALS = false;
 // static const float FLOAT_MAX = 340282300000000000000000000000000000000.0f;
 
 // - BEGIN: Ray Constructors -------------------------------------------------------------------------------------
@@ -19,6 +24,7 @@ struct Ray
 {
 	float3 origin;
 	float3 direction;
+    float3 throughput;
 };
 
 struct RayCastHit
@@ -33,6 +39,7 @@ Ray NewRay(float3 origin, float3 direction)
 	Ray ray;
 	ray.origin = origin,
 	ray.direction = direction;
+    ray.throughput = float3(1.0f, 1.0f, 1.0f); // new rays begin always with full throughput
 	return ray;
 }
 
@@ -50,7 +57,6 @@ RayCastHit NewRCHit(float3 hit_pos, float dist, float3 normal)
 // - BEGIN: Geometry and Intersection Routines -------------------------------------------------------------------------------------
 struct Material
 {
-    float3 ambient;
     float3 specular;
     float3 diffuse;
     float shininess;
@@ -58,21 +64,22 @@ struct Material
 
 struct Sphere
 {
+    // geometric properties
     float3 centre;
     float radius;
+    
+    // material properties
     Material material;
 };
 
 Material NewMaterial(
-    float3 ambient,
+    float3 diffuse, 
     float3 specular,
-    float3 diffuse,
     float shininess
 ) {
     Material mat;
-    mat.ambient = ambient;
-    mat.specular = specular;
     mat.diffuse = diffuse;
+    mat.specular = specular;
     mat.shininess = shininess;
     
     return mat;
@@ -152,13 +159,18 @@ bool GroundPlaneIntersects(Ray ray, inout RayCastHit rc_hit_closest)
     }
 }
 
+// The scene intersection routine. Returns the ray intersection record that represents the closest hit.
+// If the t-value is infinity, then there was no hit.
 RayCastHit RayCast(Ray ray)
 {
 	// the return value is going to be the RC Hit record of the closest intersection
-    float4 test_sphere = float4(0.0f, 3.0f, 5.0f, 1.0f);
+    float4 test_sphere = float4(0.0f, 5.0f, 5.0f, 1.0f);
+    float4 test_sphere2 = float4(3.0f, 5.0f, 4.0f, 1.0f);
+    
     RayCastHit rc_hit = NewRCHit(float3(0.0f, 0.0f, 0.0f), INFINITY, float3(0.0f, 0.0f, 0.0f));
     GroundPlaneIntersects(ray, rc_hit);
     SphereIntersects(ray, rc_hit, test_sphere);
+    SphereIntersects(ray, rc_hit, test_sphere2);
     return rc_hit;
 }
 
@@ -186,14 +198,69 @@ Ray CameraRayGen(float2 ndc_xy)
 
 // - BEGIN: Shading Model --------------------------------------------------------
 
+float3 Blinn_Phong(
+    float3 light_dir, // w_i
+    float3 light_colour,
+    float3 normal,
+    float3 half_vector,
+    float3 diffuse,
+    float3 specular,
+    float3 shininess
+)
+{
+    float point_diffuse = dot(normal, light_dir); // n \dot l
+    float3 lambertian = diffuse * light_colour * max(point_diffuse, 0.0);
+
+    float point_spec = dot(normal, half_vector); // n \dot h
+    float3 phong = specular * light_colour * pow(max(point_spec, 0.0), shininess);
+
+    return lambertian + phong;
+}
+
+
 float3 ComputeLighting(inout Ray ray, RayCastHit rc_hit)
 {
-    if (rc_hit.t < 100000.0) { // on intersection with scene geometry
+    if (rc_hit.t < INFINITY) { // on intersection with scene geometry
         
-        return rc_hit.normal * 0.5f + 0.5f;
-        // return float3(0.0f, 1.0f, 0.0f);
+        float3 diffuse_test = float3(0.2f, 0.2f, 0.2f);
+        float3 specular_test = float3(0.6f, 0.6f, 0.6f);
+        
+        float3 diffuse = diffuse_test;
+        float3 specular = specular_test;
+        float3 shininess = 100.0f;
+        
+        // BEGIN: Simplified Blinn-Phong lighting calculations
+        float3 normal = normalize(rc_hit.normal);
+        float3 half_vec = normalize(-1 * _Sun.xyz + -1 * ray.direction);
+        
+        float3 obj_colour = Blinn_Phong(
+            -_Sun.xyz,
+            float3(_Sun.w, _Sun.w, _Sun.w),
+            normal,
+            half_vec,
+            diffuse,
+            specular,
+            shininess
+        );
+        
+        // since recursion is not supported, we will reflect the ray by reference here
+        // and await the next bounce.
+        ray.origin = rc_hit.hit_point + rc_hit.normal * 0.001f;
+        ray.direction = reflect(ray.direction, rc_hit.normal);
+        ray.throughput *= specular_test; // attenuate the throughput by the specular component
+        
+        // do not add the colour if the point is shadow-cast
+        Ray shadow_ray = NewRay(rc_hit.hit_point + 0.001f * rc_hit.normal, -1 * _Sun.xyz);
+        RayCastHit occlusion_hit = RayCast(shadow_ray);
+        if (occlusion_hit.t < INFINITY) {
+            return float3(0.0f, 0.0f, 0.0f);
+        }
+
+        return saturate(obj_colour);
         
     } else { // sample the skybox if no geometry was hit
+        
+        ray.throughput = 0.0f;
         
 		// we want to sample the skybox using spherical coordinates.
 		// convert the world-space direction vector to an azimuthal and polar angle on the unit sphere
@@ -207,6 +274,7 @@ float3 ComputeLighting(inout Ray ray, RayCastHit rc_hit)
 		
         float3 skybox_colour = _SkyboxTexture.SampleLevel(sampler_SkyboxTexture, float2(phi, theta), 0.0f).xyz;
         return skybox_colour;
+        return float3(0.0f, 0.0f, 0.0f);
     }
 }
 
@@ -229,15 +297,37 @@ void CSMain (uint3 id : SV_DispatchThreadID)
 		// id.xy effectively gives us the x-y coordinate of the pixel this compute shader is currently "working on"
 		// since each shader instance is given a 3-dimensional ID vector
 		(
-			(id.xy + float2(0.5f, 0.5f))
-			/ float2(width, height)
+			(id.xy + _PixelOffset) // jitter around pixel centre
+			/ float2(width, height) // normalize
 		) * 2.0f - 1.0f
 	);
 	
-	// primary ray generation
-    Ray cam_ray = CameraRayGen(ndc_xy);	
-    RayCastHit rc_hit = RayCast(cam_ray);
-    float3 this_pix_colour = ComputeLighting(cam_ray, rc_hit);
 
+    // - BEGIN: the ray tracing algorithm on a single pixel -------------------------------
+    
+    // primary ray generation
+    Ray cam_ray = CameraRayGen(ndc_xy);
+    
+    float3 this_pix_colour = float3(0.0f, 0.0f, 0.0f);
+    
+    for (int i = 0; i < _MaxBounces; i++) { // HLSL does not support recursion, so we will have to do iterative reflection tracing
+        // Raycast to get intersection record
+        RayCastHit rc_hit = RayCast(cam_ray);
+        
+        if (DEBUG_NORMALS) {
+            this_pix_colour = rc_hit.normal * 0.5f + 0.5f;
+            break;
+        }
+            
+        // offload the shading to the ComputeLighting function
+        this_pix_colour += cam_ray.throughput * ComputeLighting(cam_ray, rc_hit);
+        
+        if (!any(cam_ray.throughput)) { // the any function returns true if any component > 0.0f
+            break;
+        }
+    }
+    
+    // - END: the ray tracing algorithm on a single pixel ---------------------------------
+    
     Result[id.xy] = float4(this_pix_colour, 1.0f);
 }
