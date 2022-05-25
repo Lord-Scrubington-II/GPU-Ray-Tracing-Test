@@ -159,8 +159,8 @@ bool GroundPlaneIntersects(Ray ray, inout RayCastHit rc_hit_closest)
 	// gives the t-value for the infinite ground plane intersection
     float t = -ray.origin.y / ray.direction.y; 
     
-    float3 plane_diffuse = float3(0.0f, 0.0f, 0.0f);
-    float3 plane_spec = float3(0.6f, 0.6f, 0.6f);
+    float3 plane_diffuse = float3(0.05f, 0.05f, 0.05f);
+    float3 plane_spec = float3(0.5f, 0.5f, 0.5f);
     float plane_shininess = 200.0f;
 	
     if (t > 0.0f && t < rc_hit_closest.t) {
@@ -334,7 +334,7 @@ void CSMain (uint3 id : SV_DispatchThreadID)
     
     float3 this_pix_colour = float3(0.0f, 0.0f, 0.0f);
     
-    for (int i = 0; i < _MaxBounces; i++) { // HLSL does not support recursion, so we will have to do iterative reflection tracing
+    for (int i = 0; i < _MaxBounces + 1; i++) { // HLSL does not support recursion, so we will have to do iterative reflection tracing
         // Raycast to get intersection record
         RayCastHit rc_hit = RayCast(cam_ray);
         
@@ -345,6 +345,8 @@ void CSMain (uint3 id : SV_DispatchThreadID)
             
         // offload the shading to the ComputeLighting function
         this_pix_colour += cam_ray.throughput * ComputeLighting(cam_ray, rc_hit);
+        
+        // TODO: on final bounce, always try to connect the ray to the skybox
         
         if (!any(cam_ray.throughput)) { // the any function returns true if any component > 0.0f
             break;

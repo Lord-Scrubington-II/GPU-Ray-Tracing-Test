@@ -27,6 +27,10 @@ public class RayTracingMaster : MonoBehaviour
     private ComputeBuffer sphereBuffer;
     private const int FLOATS_IN_SHADER_SPHERE = 11; // used for calculating the buffer stride
 
+    Vector3 DEFAULT_SPEC = new Vector3(0.6f, 0.6f, 0.6f);
+    Vector3 DEFAULT_DIFFUSE = 0.1f * new Vector3(0.6f, 0.6f, 0.6f);
+    
+
     internal struct SimpleSphere
     {
         Vector3 centre;
@@ -88,31 +92,42 @@ public class RayTracingMaster : MonoBehaviour
         for (int i = 0; i < numSpheres; i++) {
             SimpleSphere sphere = new SimpleSphere();
 
-            // set the radius and centre point of this sphere inside the defined placement circle
-            sphere.Radius = sphereRadiusRange.x + Random.value * (sphereRadiusRange.y - sphereRadiusRange.x);
-            Vector2 randomPos = Random.insideUnitCircle * spherePlacementRadius;
-            sphere.Centre = new Vector3(randomPos.x, sphere.Radius, randomPos.y);
+            if (i == 0) {
+                // for the first sphere, we will use a default texture, size, and position to showcase the environment map
+                sphere.Radius = 1.3f * sphereRadiusRange.y;
+                sphere.Centre = new Vector3(0.0f, sphere.Radius, 0.0f);
 
-            // to deal with spheres that intersect each other, just reject them
-            foreach (var otherSphere in spheres) {
-                float minDistThresh = sphere.Radius + otherSphere.Radius; // must be dist apart equal to sum of their radii
-                if (Vector3.Distance(sphere.Centre, otherSphere.Centre) < minDistThresh) {
-                    goto NextSphere; // the only time you will ever see me use 'goto'
-                }
-            }
+                sphere.material.Diffuse = DEFAULT_DIFFUSE;
+                sphere.material.Specular = DEFAULT_SPEC;
+                sphere.material.Shininess = sphereShininessRange.y;
 
-            // define a somewhat-random diffuse, specular, and shininess
-            Color color = Random.ColorHSV();
-            bool isMetal = Random.value < 0.5f; // half the spheres will be metals (highly specular), the other half matte (highly diffuse)
-
-            if (isMetal) {
-                sphere.material.Diffuse = Vector3.zero;
-                sphere.material.Specular = new Vector3(color.r, color.g, color.b);
             } else {
-                sphere.material.Diffuse = new Vector3(color.r, color.g, color.b);
-                sphere.material.Specular = Vector3.one * 0.05f; // add 5% specularity, fully arbitrary
+                // set the radius and centre point of this sphere inside the defined placement circle
+                sphere.Radius = sphereRadiusRange.x + Random.value * (sphereRadiusRange.y - sphereRadiusRange.x);
+                Vector2 randomPos = Random.insideUnitCircle * spherePlacementRadius;
+                sphere.Centre = new Vector3(randomPos.x, sphere.Radius, randomPos.y);
+
+                // to deal with spheres that intersect each other, just reject them
+                foreach (var otherSphere in spheres) {
+                    float minDistThresh = sphere.Radius + otherSphere.Radius; // must be dist apart equal to sum of their radii
+                    if (Vector3.Distance(sphere.Centre, otherSphere.Centre) < minDistThresh) {
+                        goto NextSphere; // the only time you will ever see me use 'goto'
+                    }
+                }
+
+                // define a somewhat-random diffuse, specular, and shininess
+                Color color = Random.ColorHSV();
+                bool isMetal = Random.value < 0.5f; // half the spheres will be metals (highly specular), the other half matte (highly diffuse)
+
+                if (isMetal) {
+                    sphere.material.Diffuse = Vector3.zero;
+                    sphere.material.Specular = new Vector3(color.r, color.g, color.b);
+                } else {
+                    sphere.material.Diffuse = new Vector3(color.r, color.g, color.b);
+                    sphere.material.Specular = Vector3.one * 0.05f; // add 5% specularity, fully arbitrary
+                }
+                sphere.material.Shininess = sphereShininessRange.x + Random.value * (sphereShininessRange.y - sphereShininessRange.x);
             }
-            sphere.material.Shininess = sphereShininessRange.x + Random.value * (sphereShininessRange.y - sphereShininessRange.x);
 
             spheres.Add(sphere);
 

@@ -5,8 +5,8 @@ using UnityEngine;
 public class CameraController : MonoBehaviour
 {
 	// Inspector vars: linear & angular velocity
-	[SerializeField] [Range(1.0f, 20.0f)] float turnSpeed = 20.0f;
-	[SerializeField] [Range(1.0f, 20.0f)] float panSpeed = 20.0f;
+	[SerializeField] [Range(1.0f, 40.0f)] float turnSpeed = 20.0f;
+	[SerializeField] [Range(1.0f, 40.0f)] float panSpeed = 20.0f;
 	[SerializeField] [Range(1.0f, 3.0f)] float movementBoostCoefficient = 2.0f; // when holding shift move faster
 
 	private const float camRotateCoeff = 20.0f; // cam rotate needs to be much faster
